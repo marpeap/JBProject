@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.25;
+
+import "./JBToken.sol";
+
+contract JBLotery {
+    uint256 public constant TICKET_PRICE = 0.00017 ether;
+    address public constant TAX_ADDRESS = 0x2c656674862e90160BB601AA6fF7445892b90873;
+    uint256 public constant TAX_PERCENTAGE = 30;
+    uint256 public constant MINIMUM_PLAYERS = 5;
+    uint256 public constant PAYOUT_PERCENTAGE = 60;
+    uint256 public lastPayoutTime;
+    address[] public players;
+    JBToken public tokenContract;
+
+    event TicketPurchased(address indexed buyer);
+    event WinnerPaid(address indexed winner, uint256 amount);
+
+    constructor(address _tokenAddress) {
+        tokenContract = JBToken(_tokenAddress);
+        lastPayoutTime = block.timestamp;
+    }
+
+     // Fonction pour recevoir l'Ether et acheter un ticket
+    receive() external payable {
+        require(msg.value == TICKET_PRICE, "Incorrect ETH amount sent");
+        players.push(msg.sender);
+        emit TicketPurchased(msg.sender);
+    }
+    }
+
+    function drawLottery() external {
+        require(block.timestamp >= lastPayoutTime + 1 hours, "Can only run once an hour");
+        require(players.length >= MINIMUM_PLAYERS, "Not enough players to draw lottery");
+
+        // Générer un gagnant aléatoire sans utiliser 'block.difficulty'
+        uint256 winnerIndex = uint256(keccak256(abi.encodePacked(block.timestamp, players))) % players.length;
+        address winner = players[winnerIndex];
+
+        // Calculer les gains
+        uint256 balance = address(this).balance;
+        uint256 tax = (balance * TAX_PERCENTAGE) / 100;
+        uint256 payout = (balance * PAYOUT_PERCENTAGE) / 100;
+
+        // Envoyer la taxe
+        payable(TAX_ADDRESS).transfer(tax);
+
+        // Payer le gagnant
+        payable(winner).transfer(payout);
+        emit WinnerPaid(winner, payout);
+
+        // Réinitialiser pour la prochaine heure
+        lastPayoutTime = block.timestamp;
+        delete players;
+    }
+
+    function refundAll() external {
+        require(players.length < MINIMUM_PLAYERS && block.timestamp >= lastPayoutTime + 1 hours, "Cannot refund before time");
+
+        // Rembourser tous les joueurs moins la taxe
+        uint256 balance = address(this).balance;
+        uint256 tax = (balance * TAX_PERCENTAGE) / 100;
+        payable(TAX_ADDRESS).transfer(tax);
+
+        uint256 refundAmount = (balance - tax) / players.length;
+        for (uint i = 0; i < players.length; i++) {
+            payable(players[i]).transfer(refundAmount);
+        }
+
+        delete players;
+    }
+
+    // Fonction pour recevoir l'Ether
+    receive() external payable {
+        buyTicket();
+    }
+}
+
